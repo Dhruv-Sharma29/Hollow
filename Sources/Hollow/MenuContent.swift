@@ -8,22 +8,24 @@ struct MenuContent: View {
         Text(drive.status)
         Divider()
         if !drive.signedIn {
-            Button("Set Up Hollow…") { openWindow(id: "setup") }
+            Button("Connect Google Drive…") { openWindow(id: "setup") }
         } else if drive.phase == .mounted {
+            Button("Search Hollow…") { PaletteController.shared.show(drive: drive) }
             Button("Open in Finder") { drive.openInFinder() }.keyboardShortcut("o")
             Button("Unmount") { Task { await drive.unmount() } }
         } else {
-            Button("Mount") { drive.mount() }
+            Button("Mount") { Task { await drive.mount() } }
         }
+        Divider()
+        SettingsLink { Text("Settings…") }.keyboardShortcut(",")
+        Button("Take the Tour") { openWindow(id: "setup") }
         if drive.signedIn {
             Button("Show Log") { drive.openLog() }
-            Button("Sign Out") { Task { await drive.signOut() } }
         }
         Divider()
         Button("Quit Hollow") {
             Task {
-                await drive.unmount()
-                NSApp.terminate(nil)
+                if await drive.unmount() { NSApp.terminate(nil) }
             }
         }
         .keyboardShortcut("q")

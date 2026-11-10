@@ -9,15 +9,21 @@ struct HollowApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Hollow", systemImage: drive.phase == .mounted ? "cloud.fill" : "cloud") {
+        MenuBarExtra {
             MenuContent(drive: drive)
+        } label: {
+            MenuBarIcon(drive: drive)
         }
 
-        Window("Set Up Hollow", id: "setup") {
-            SetupView(drive: drive)
+        Window("Welcome to Hollow", id: "setup") {
+            OnboardingView(drive: drive)
         }
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
         .defaultLaunchBehavior(drive.signedIn ? .suppressed : .presented)   // first run only
+
+        Settings {
+            SettingsView(drive: drive)
+        }
     }
 }

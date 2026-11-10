@@ -11,6 +11,9 @@ final class Drive {
     let rclone: Rclone?
     private var mountProcess: Process?
     private var signInProcess: Process?
+    private var mounting = false
+    /// A problem worth showing that doesn't change the mount state, e.g. a refused unmount.
+    private(set) var notice: String?
 
     init() {
         let support = URL.applicationSupportDirectory.appending(path: "Hollow")
@@ -20,11 +23,12 @@ final class Drive {
         }
         guard let rclone else { phase = .failed("rclone not found. Run: brew install rclone"); return }
         signedIn = rclone.isSignedIn()
-        if signedIn { mount() }
+        if signedIn { Task { await mount() } }   // never block launch on mount work
     }
 
     var status: String {
-        switch phase {
+        if let notice { return notice }
+        return switch phase {
         case .idle: signedIn ? "Not mounted" : "Not signed in"
         case .busy(let what): what
         case .mounted: "Mounted at ~/Hollow"
@@ -50,7 +54,7 @@ final class Drive {
         signedIn = rclone.isSignedIn()
         if code == 15 { phase = .idle; return }   // the user pressed Cancel
         guard code == 0, signedIn else { phase = .failed("Sign-in didn't finish. Try again."); return }
-        mount()
+        await mount()
     }
 
     var isSigningIn: Bool { signInProcess != nil }
@@ -73,18 +77,30 @@ final class Drive {
 
     private(set) var loginItemError: String?
 
-    func mount() {
-        guard let rclone, mountProcess == nil else { return }
-        // A crash can leave a dead NFS mount behind, which hangs Finder. Clear it before
-        // touching the folder, because even a stat on a dead mount can block.
-        if isMountPoint(rclone.mountPoint) { Self.forceUnmount(rclone.mountPoint) }
+    func mount() async {
+        guard let rclone, mountProcess == nil, !mounting else { return }
+        mounting = true
+        defer { mounting = false }
+        notice = nil
+
+        // A crash can leave an old NFS mount behind. Clear it off the main actor, and give up
+        // after a while: on a dead server even `umount -f` can wait in the kernel indefinitely.
+        if isMountPoint(rclone.mountPoint) {
+            phase = .busy("Clearing an old mount…")
+            let code = await Self.run("/sbin/umount", ["-f", rclone.mountPoint.path], timeout: .seconds(10))
+            if code == nil || isMountPoint(rclone.mountPoint) {
+                phase = .failed("An old Hollow mount is stuck. Restart your Mac, then open Hollow.")
+                return
+            }
+        }
         let fm = FileManager.default
         try? fm.createDirectory(at: rclone.mountPoint, withIntermediateDirectories: true)
         try? fm.createDirectory(at: rclone.cache, withIntermediateDirectories: true)
 
         let p = Process()
         p.executableURL = rclone.binary
-        p.arguments = rclone.mountArgs()
+        let gb = UserDefaults.standard.object(forKey: Self.cacheLimitKey) as? Int ?? Self.defaultCacheLimitGB
+        p.arguments = rclone.mountArgs(cacheLimit: "\(gb)G")
         p.terminationHandler = { proc in
             let code = proc.terminationStatus
             Task { @MainActor in self.mountEnded(code) }
@@ -93,30 +109,41 @@ final class Drive {
         mountProcess = p
         phase = .busy("Mounting…")
 
-        Task {
-            for _ in 0..<40 {
-                guard mountProcess === p else { return }   // rclone exited; mountEnded reports why
-                if isMountPoint(rclone.mountPoint) { phase = .mounted; return }
-                try? await Task.sleep(for: .milliseconds(250))
-            }
-            guard mountProcess === p else { return }
-            phase = .failed("Mount timed out, see rclone.log")
-            p.terminate()   // so Mount can be tried again
-
+        for _ in 0..<40 {
+            guard mountProcess === p else { return }   // rclone exited; mountEnded reports why
+            if isMountPoint(rclone.mountPoint) { phase = .mounted; return }
+            try? await Task.sleep(for: .milliseconds(250))
         }
+        guard mountProcess === p else { return }
+        phase = .failed("Mount timed out, see rclone.log")
+        p.terminate()   // so Mount can be tried again
     }
 
-    /// SIGTERM makes rclone unmount cleanly and exit. The wait happens off the main actor,
-    /// so the menu stays responsive.
-    func unmount() async {
-        guard let p = mountProcess else { return }
+    /// Unmounts first, while rclone's NFS server is still up, then stops rclone.
+    /// The other order (SIGTERM first) can leave the kernel waiting on a server that's gone.
+    /// Returns false, and stays mounted, when macOS refuses because files are open.
+    @discardableResult
+    func unmount() async -> Bool {
+        guard let rclone, let p = mountProcess else { return true }
+        notice = nil
         phase = .busy("Unmounting…")
+        if isMountPoint(rclone.mountPoint) {
+            let code = await Self.run("/sbin/umount", [rclone.mountPoint.path], timeout: .seconds(15))
+            if code != 0, isMountPoint(rclone.mountPoint) {
+                phase = .mounted
+                notice = "Couldn't unmount. Close files open from Hollow, then try again."
+                return false
+            }
+        }
         p.terminate()
-        await Self.waitForExit(p)
+        // ponytail: rclone may still be uploading. Its cache keeps pending writes and retries
+        // them on the next mount, so after 30 s we stop waiting rather than hang Quit.
+        _ = await Self.wait(for: p, timeout: .seconds(30))
+        return true
     }
 
     func signOut() async {
-        await unmount()
+        guard await unmount() else { return }
         signInProcess?.terminate()
         guard let rclone else { return }
         try? FileManager.default.removeItem(at: rclone.config)
@@ -124,6 +151,25 @@ final class Drive {
         // and rclone uploads them on the next mount. Deleting it here could lose files.
         signedIn = false
         phase = .idle
+    }
+
+    static let cacheLimitKey = "cacheLimitGB"
+    static let defaultCacheLimitGB = 10
+
+    /// Copies files into the mount. rclone uploads them in the background.
+    func add(_ urls: [URL]) async {
+        guard let dest = rclone?.mountPoint, phase == .mounted else { return }
+        let failed = await Self.copy(urls, to: dest)
+        if !failed.isEmpty { phase = .failed("Couldn't add \(failed.formatted())") }
+    }
+
+    @concurrent private static func copy(_ urls: [URL], to dest: URL) async -> [String] {
+        var failed: [String] = []
+        for url in urls {
+            do { try FileManager.default.copyItem(at: url, to: dest.appending(path: url.lastPathComponent)) }
+            catch { failed.append(url.lastPathComponent) }
+        }
+        return failed
     }
 
     func openInFinder() {
@@ -150,15 +196,22 @@ final class Drive {
         }
     }
 
-    @concurrent private static func waitForExit(_ p: Process) async {
-        p.waitUntilExit()
+    /// Runs a tool off the main actor. nil means it didn't finish within `timeout`
+    /// (it's left running: a process stuck in the kernel can't be killed anyway).
+    @concurrent private static func run(_ path: String, _ args: [String], timeout: Duration) async -> Int32? {
+        let p = Process()
+        p.executableURL = URL(filePath: path)
+        p.arguments = args
+        do { try p.run() } catch { return nil }
+        return await wait(for: p, timeout: timeout) ? p.terminationStatus : nil
     }
 
-    private static func forceUnmount(_ url: URL) {
-        let p = Process()
-        p.executableURL = URL(filePath: "/sbin/umount")
-        p.arguments = ["-f", url.path]
-        try? p.run()
-        p.waitUntilExit()
+    @concurrent private static func wait(for p: Process, timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while p.isRunning {
+            if ContinuousClock.now >= deadline { return false }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return true
     }
 }

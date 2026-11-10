@@ -15,6 +15,10 @@ APP=dist/Hollow.app
 
 [[ -n "${HOLLOW_CLIENT_ID:-}" && -n "${HOLLOW_CLIENT_SECRET:-}" ]] ||
   echo "warning: HOLLOW_CLIENT_ID/SECRET not set, sign-in will fall back to rclone's retiring shared client" >&2
+if [[ -n "${HOLLOW_CLIENT_ID:-}" && "$HOLLOW_CLIENT_ID" != *.apps.googleusercontent.com ]]; then
+  echo "error: HOLLOW_CLIENT_ID should end in .apps.googleusercontent.com (got '$HOLLOW_CLIENT_ID')" >&2
+  exit 1
+fi
 
 swift build -c release --arch arm64   # ponytail: Apple Silicon only; Intel needs a universal rclone (lipo the two from rclone.org)
 
@@ -39,6 +43,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
+  <key>NSNetworkVolumesUsageDescription</key><string>Hollow shows your Google Drive as a disk on your Mac. It needs this to search your Drive and add files to it.</string>
   <key>NSHumanReadableCopyright</key><string>Hollow is GPL-3.0. It bundles rclone (MIT License).</string>
   <key>HollowGoogleClientID</key><string>${HOLLOW_CLIENT_ID:-}</string>
   <key>HollowGoogleClientSecret</key><string>${HOLLOW_CLIENT_SECRET:-}</string>
