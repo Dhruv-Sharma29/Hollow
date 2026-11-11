@@ -49,7 +49,11 @@ struct OnboardingView: View {
                                      startPoint: .top, endPoint: .bottom))
             Group {
                 switch page {
-                case 0: badge("externaldrive.badge.icloud")
+                case 0:
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 112, height: 112)
+                        .accessibilityLabel("Hollow")
                 case 1: StreamingDemo()
                 case 2: badge("lock.shield")
                 default:

@@ -18,7 +18,6 @@ struct MenuContent: View {
         }
         Divider()
         SettingsLink { Text("Settings…") }.keyboardShortcut(",")
-        Button("Take the Tour") { openWindow(id: "setup") }
         if drive.signedIn {
             Button("Show Log") { drive.openLog() }
         }

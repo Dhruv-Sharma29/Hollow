@@ -27,6 +27,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --arch arm64 --show-bin-path)/Hollow" "$APP/Contents/MacOS/Hollow"
 cp "$RCLONE" "$APP/Contents/MacOS/rclone"
 cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
+cp branding/Hollow.icns "$APP/Contents/Resources/Hollow.icns"   # regenerate with scripts/make-icon.swift
 cp "$(dirname "$RCLONE")/../COPYING" "$APP/Contents/Resources/rclone-LICENSE.txt" 2>/dev/null ||
   echo "warning: rclone's COPYING not found; ship its MIT license yourself" >&2
 
@@ -38,6 +39,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Hollow</string>
   <key>CFBundleIdentifier</key><string>app.hollow.Hollow</string>
   <key>CFBundleExecutable</key><string>Hollow</string>
+  <key>CFBundleIconFile</key><string>Hollow</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
