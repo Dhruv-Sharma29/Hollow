@@ -10,7 +10,7 @@ struct MenuContent: View {
         if !drive.signedIn {
             Button("Connect Google Drive…") { openWindow(id: "setup") }
         } else if drive.phase == .mounted {
-            Button("Search Hollow…") { PaletteController.shared.show(drive: drive) }
+            Button("Search Hollow…") { PaletteController.shared.show() }
             Button("Open in Finder") { drive.openInFinder() }.keyboardShortcut("o")
             Button("Unmount") { Task { await drive.unmount() } }
         } else {

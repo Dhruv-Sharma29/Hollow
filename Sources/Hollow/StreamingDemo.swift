@@ -2,10 +2,13 @@ import SwiftUI
 
 /// Tour page 2: a big film whose bar only ever holds the slice being watched.
 struct StreamingDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            let playhead = (t / 6).truncatingRemainder(dividingBy: 1)   // loops every 6 s
+            // Loops every 6 s; with Reduce Motion the slice sits still mid-bar.
+            let playhead = reduceMotion ? 0.4 : (t / 6).truncatingRemainder(dividingBy: 1)
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {

@@ -77,9 +77,15 @@ struct PaletteView: View {
                             .padding(.horizontal, 8)
                             .padding(.top, 8)
                         ForEach(section.items) { item in
-                            row(item, selected: index(of: item) == selection)
-                                .id(item.id)
-                                .onTapGesture { selection = index(of: item); runSelected(revealing: false) }
+                            // A real button, so VoiceOver and Full Keyboard Access can use each row.
+                            Button {
+                                selection = index(of: item)
+                                runSelected(revealing: false)
+                            } label: {
+                                row(item, selected: index(of: item) == selection)
+                            }
+                            .buttonStyle(.plain)
+                            .id(item.id)
                         }
                     }
                     if sections.isEmpty {
@@ -148,12 +154,16 @@ struct PaletteView: View {
             .buttonBorderShape(.capsule)
             .disabled(flat.isEmpty)
             Divider().frame(height: 20)
-            Button { close(); openSettings() } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.borderless)
-                .help("Settings")
-            Button { Task { if await drive.unmount() { NSApp.terminate(nil) } } } label: { Image(systemName: "power") }
-                .buttonStyle(.borderless)
+            Group {
+                Button("Settings", systemImage: "gearshape") { close(); openSettings() }
+                    .help("Settings")
+                Button("Quit Hollow", systemImage: "power") {
+                    Task { if await drive.unmount() { NSApp.terminate(nil) } }
+                }
                 .help("Quit Hollow")
+            }
+            .buttonStyle(.borderless)
+            .labelStyle(.iconOnly)   // VoiceOver still reads the titles
         }
         .font(.body)
         .padding(.horizontal, 16)

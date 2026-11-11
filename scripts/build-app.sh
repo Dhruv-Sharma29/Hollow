@@ -27,7 +27,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --arch arm64 --show-bin-path)/Hollow" "$APP/Contents/MacOS/Hollow"
 cp "$RCLONE" "$APP/Contents/MacOS/rclone"
 cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
-cp branding/Hollow.icns "$APP/Contents/Resources/Hollow.icns"   # regenerate with scripts/make-icon.swift
+# Light, dark and tinted icon from Icon Composer's format; actool also writes Hollow.icns
+# for macOS versions before 26. Edit the art with scripts/make-icon.sh or Icon Composer.
+xcrun actool branding/Hollow.icon --compile "$APP/Contents/Resources" --platform macosx \
+  --minimum-deployment-target 15.0 --app-icon Hollow \
+  --output-partial-info-plist "$(mktemp)" >/dev/null
 cp "$(dirname "$RCLONE")/../COPYING" "$APP/Contents/Resources/rclone-LICENSE.txt" 2>/dev/null ||
   echo "warning: rclone's COPYING not found; ship its MIT license yourself" >&2
 
@@ -40,6 +44,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>app.hollow.Hollow</string>
   <key>CFBundleExecutable</key><string>Hollow</string>
   <key>CFBundleIconFile</key><string>Hollow</string>
+  <key>CFBundleIconName</key><string>Hollow</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>

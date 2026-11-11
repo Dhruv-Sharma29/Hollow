@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct HollowApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var drive = Drive()
 
     init() {

@@ -8,12 +8,13 @@ struct MenuBarIcon: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Image(systemName: drive.phase == .mounted ? "cloud.fill" : "cloud")
+        Image(nsImage: MenuBarGlyph.image(mounted: drive.phase == .mounted))
             .onAppear {
                 let palette = PaletteController.shared
+                palette.drive = drive
                 palette.openSetup = { openWindow(id: "setup"); NSApp.activate() }
                 palette.openSettings = { openSettings(); NSApp.activate() }
-                GlobalHotKey.register { palette.toggle(drive: drive) }
+                GlobalHotKey.register { palette.toggle() }
             }
     }
 }

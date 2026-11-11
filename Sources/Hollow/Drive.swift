@@ -159,8 +159,11 @@ final class Drive {
     /// Copies files into the mount. rclone uploads them in the background.
     func add(_ urls: [URL]) async {
         guard let dest = rclone?.mountPoint, phase == .mounted else { return }
+        notice = nil
         let failed = await Self.copy(urls, to: dest)
-        if !failed.isEmpty { phase = .failed("Couldn't add \(failed.formatted())") }
+        // A notice, not .failed: the Drive is still mounted, and .failed would offer a "Mount again"
+        // that can't run while rclone is up.
+        if !failed.isEmpty { notice = "Couldn't add \(failed.formatted())" }
     }
 
     @concurrent private static func copy(_ urls: [URL], to dest: URL) async -> [String] {
