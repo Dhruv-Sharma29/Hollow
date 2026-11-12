@@ -64,7 +64,8 @@ struct PaletteView: View {
     }
 
     private var results: some View {
-        ScrollViewReader { proxy in
+        let sections = self.sections
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(sections, id: \.title) { section in
@@ -76,16 +77,16 @@ struct PaletteView: View {
                             .background(.fill.tertiary, in: .capsule)
                             .padding(.horizontal, 8)
                             .padding(.top, 8)
-                        ForEach(section.items) { item in
+                        ForEach(section.rows, id: \.item.id) { row in
                             // A real button, so VoiceOver and Full Keyboard Access can use each row.
                             Button {
-                                selection = index(of: item)
+                                selection = row.index
                                 runSelected(revealing: false)
                             } label: {
-                                row(item, selected: index(of: item) == selection)
+                                PaletteRow(item: row.item, selected: row.index == selection)
                             }
                             .buttonStyle(.plain)
-                            .id(item.id)
+                            .id(row.item.id)
                         }
                     }
                     if sections.isEmpty {
@@ -100,38 +101,10 @@ struct PaletteView: View {
             }
             .scrollIndicators(.hidden)
             .onChange(of: selection) { _, i in
-                if flat.indices.contains(i) { proxy.scrollTo(flat[i].id) }
+                let flat = sections.flatMap(\.rows)
+                if flat.indices.contains(i) { proxy.scrollTo(flat[i].item.id) }
             }
         }
-    }
-
-    private func row(_ item: PaletteItem, selected: Bool) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: item.symbol)
-                .frame(width: 28, height: 28)
-                .foregroundStyle(attention(item) ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
-                .background(.fill.tertiary, in: .rect(cornerRadius: 8))
-            Text(item.title)
-            if let subtitle = item.subtitle {
-                Text(subtitle)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer()
-            if let shortcut = item.shortcut {
-                Text(shortcut)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.fill.tertiary, in: .capsule)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .background(selected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 12))
-        .contentShape(.rect)
     }
 
     private var footer: some View {
@@ -195,21 +168,28 @@ struct PaletteView: View {
 
     // MARK: Data
 
-    private struct Section { let title: String; let items: [PaletteItem] }
+    private struct Row { let index: Int; let item: PaletteItem }
+    private struct Section { let title: String; let rows: [Row] }
 
+    /// Built once per update. Each row knows its position, so selection needs no searching.
     private var sections: [Section] {
         let q = query
         let matches: (PaletteItem) -> Bool = { q.isEmpty || $0.title.localizedStandardContains(q) }
+        let groups: [(String, [PaletteItem])] = [
+            ("Needs attention", attentionItems.filter(matches)),
+            ("Files", files.map(fileItem)),
+            ("Actions", actionItems.filter(matches)),
+        ]
         var out: [Section] = []
-        let attention = attentionItems.filter(matches)
-        if !attention.isEmpty { out.append(Section(title: "Needs attention", items: attention)) }
-        if !files.isEmpty { out.append(Section(title: "Files", items: files.map(fileItem))) }
-        let actions = actionItems.filter(matches)
-        if !actions.isEmpty { out.append(Section(title: "Actions", items: actions)) }
+        var next = 0
+        for (title, items) in groups where !items.isEmpty {
+            out.append(Section(title: title, rows: items.enumerated().map { Row(index: next + $0.offset, item: $0.element) }))
+            next += items.count
+        }
         return out
     }
 
-    private var flat: [PaletteItem] { sections.flatMap(\.items) }
+    private var flat: [PaletteItem] { sections.flatMap(\.rows).map(\.item) }
 
     private var attentionItems: [PaletteItem] {
         if !drive.signedIn {
@@ -253,14 +233,6 @@ struct PaletteView: View {
                            symbol: url.hasDirectoryPath ? "folder" : "doc") {
             close(); NSWorkspace.shared.open(url)
         }
-    }
-
-    private func attention(_ item: PaletteItem) -> Bool {
-        if case .attention = item.kind { true } else { false }
-    }
-
-    private func index(of item: PaletteItem) -> Int {
-        flat.firstIndex { $0.id == item.id } ?? 0
     }
 
     // MARK: Actions

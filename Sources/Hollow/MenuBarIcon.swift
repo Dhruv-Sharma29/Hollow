@@ -12,8 +12,8 @@ struct MenuBarIcon: View {
             .onAppear {
                 let palette = PaletteController.shared
                 palette.drive = drive
-                palette.openSetup = { openWindow(id: "setup"); NSApp.activate() }
-                palette.openSettings = { openSettings(); NSApp.activate() }
+                palette.openSetup = { openWindow(id: "setup"); BringForward.now() }
+                palette.openSettings = { openSettings(); BringForward.now() }
                 GlobalHotKey.register { palette.toggle() }
             }
     }

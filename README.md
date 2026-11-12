@@ -20,35 +20,71 @@ A license check in public code only stops honest people.
 GPL-3.0 means anyone who ships a modified Hollow has to publish their changes under the same
 license, so nobody can take this code and sell a closed-source copy of it.
 
-## Develop
+## Build and run it yourself
+
+You need a Mac with Apple Silicon, macOS 15 or later, Xcode, and about 15 minutes.
+The repo has no Google credentials in it: every build uses a Google client you create.
+
+### 1. Install rclone
 
 ```bash
 brew install rclone
-HOLLOW_CLIENT_ID=... HOLLOW_CLIENT_SECRET=... swift run
+```
+
+### 2. Create your own Google client
+
+Google requires every app that touches Drive to have its own client. It's free.
+
+1. Open [Google Cloud Console](https://console.cloud.google.com) and create a project, e.g. `Hollow`.
+2. **APIs & Services → Library**: enable the **Google Drive API**.
+3. **Google Auth Platform → Get started**: enter an app name and your email.
+   For **Audience**, pick **External**. (Internal only works for Google Workspace accounts in your
+   organisation; personal Gmail accounts get `Error 403: org_internal`.)
+4. **Audience → Test users → Add users**: add the Gmail address you'll sign in with.
+   While the app is in Testing, only listed test users can sign in; everyone else gets
+   `Error 403: access_denied`.
+5. **Data access → Add or remove scopes**: add only `https://www.googleapis.com/auth/drive.file`.
+   Hollow sees just the files it creates, and this scope needs no security audit.
+6. **Clients → Create client → Desktop app**, then **Download JSON**. Google shows a secret only
+   once; if you lose it, use **Add secret** on the client page and download again.
+
+Keep that JSON file out of the repo (`.gitignore` already ignores `client_secret*.json`).
+
+### 3. Build the app
+
+```bash
+./scripts/build-app.sh ~/Downloads/client_secret_….json
+```
+
+The first line should read `using Google client …`. This writes `dist/Hollow.app` with rclone
+and its license bundled inside. Your client goes into the app's `Info.plist`, never the repo.
+Without `DEVELOPER_ID` the app is ad-hoc signed and runs only on the Mac that built it.
+
+### 4. Run it
+
+```bash
+open dist/Hollow.app
+```
+
+Go through the tour and click **Connect Google Drive**. Google shows "Google hasn't verified this
+app" while your client is in Testing: choose **Continue**, then **Allow**. Your Drive appears at
+`~/Hollow`. Press **⌃⌥H** anywhere to search it.
+
+### Develop and test
+
+```bash
+HOLLOW_CLIENT_ID=… HOLLOW_CLIENT_SECRET=… swift run
 swift test
 ```
 
-## Build the app
+`swift run` reads the client from the environment. "Open at login" only works from the built app.
 
-```bash
-HOLLOW_CLIENT_ID=... HOLLOW_CLIENT_SECRET=... ./scripts/build-app.sh
-```
+### Let anyone sign in
 
-This writes `dist/Hollow.app` with rclone and its license bundled inside, so buyers don't need
-Homebrew. The Google client is baked into `Info.plist` at build time and never committed.
-Without `DEVELOPER_ID` the app is ad-hoc signed and only runs on the Mac that built it.
-
-### Google client ID (required)
-
-rclone's shared client ID is being retired in 2026, so use your own:
-
-1. In Google Cloud Console, create a project and enable the **Google Drive API**.
-2. Set up the OAuth consent screen. Add yourself as a test user while developing.
-3. Create credentials of type **OAuth client ID → Desktop app**.
-
-Hollow asks only for the `drive.file` scope: it sees files it created, never the rest of
-your Drive. That scope is non-sensitive, so there's no security audit. Publishing the consent
-screen for the public still needs Google's brand verification (domain, privacy policy, homepage).
+Testing allows up to 100 test users. To open sign-in to everyone, publish your consent screen:
+you'll need a domain you own (verified in Google Search Console), a homepage and a privacy policy
+on it, the **Branding** page filled in, then **Audience → Publish app**. A logo also goes through
+Google's brand verification, which takes a few days.
 
 ## Before you can sell it
 
@@ -58,7 +94,6 @@ screen for the public still needs Google's brand verification (domain, privacy p
 | Google consent screen published for the public | A domain, homepage and privacy policy |
 | Payments | A payment provider (e.g. Razorpay, Lemon Squeezy, Paddle) that delivers the download link after purchase |
 | Distribution | A `.dmg`, a download page, and auto-updates (e.g. Sparkle) so paying users stay current |
-| App icon | `AppIcon.icns` |
 | Intel Macs | A universal rclone (`lipo` the arm64 and amd64 builds from rclone.org) |
 
 ## Where things live

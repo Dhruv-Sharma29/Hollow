@@ -12,18 +12,51 @@ struct Rclone {
     var cache: URL { support.appending(path: "cache") }
     var log: URL { support.appending(path: "rclone.log") }
 
-    /// Opens the browser for Google sign-in and writes the token to our own config file.
-    /// scope=drive.file: rclone only sees files it created, never the rest of the Drive.
-    func signInArgs(clientID: String?, clientSecret: String?) -> [String] {
-        var args = ["config", "create", Self.remote, "drive", "scope=drive.file"]
+    // Sign-in is two steps, so the browser can show Hollow's own page instead of rclone's:
+    // 1. `rclone authorize` opens Google, serves `template` when it's done, and prints the token.
+    // 2. `rclone config create … token=…` saves that token to Hollow's own config file.
+    // scope=drive.file: rclone only sees files it created, never the rest of the Drive.
+
+    func authorizeArgs(clientID: String?, clientSecret: String?, template: URL?) -> [String] {
+        var args = ["authorize", "drive", Self.authorizeBlob(clientID: clientID, clientSecret: clientSecret)]
+        if let template { args += ["--template", template.path] }
+        return args
+    }
+
+    func saveTokenArgs(_ token: String, clientID: String?, clientSecret: String?) -> [String] {
+        var args = ["config", "create", Self.remote, "drive", "scope=drive.file", "token=\(token)"]
         if let clientID, let clientSecret {
             args += ["client_id=\(clientID)", "client_secret=\(clientSecret)"]
         } else {
-            // ponytail: rclone's shared client is being retired in 2026; set HOLLOW_CLIENT_ID/SECRET.
+            // ponytail: rclone's shared client is being retired in 2026; build with your own client.
             args += ["config_shared_client_id=true"]
         }
-        return args + ["--config", config.path]
+        return args + ["--config", config.path, "--non-interactive"]
     }
+
+    /// `rclone authorize` takes the client and scope as unpadded base64url JSON.
+    static func authorizeBlob(clientID: String?, clientSecret: String?) -> String {
+        var fields = ["scope": "drive.file"]
+        if let clientID, let clientSecret {
+            fields["client_id"] = clientID
+            fields["client_secret"] = clientSecret
+        }
+        let json = (try? JSONSerialization.data(withJSONObject: fields, options: .sortedKeys)) ?? Data()
+        return json.base64EncodedString()
+            .replacing("+", with: "-").replacing("/", with: "_").replacing("=", with: "")
+    }
+
+    /// `rclone authorize` prints the token between "--->" and "<---End paste".
+    static func token(fromAuthorizeOutput output: String) -> String? {
+        guard let start = output.range(of: "--->"),
+              let end = output.range(of: "<---End paste", range: start.upperBound..<output.endIndex)
+        else { return nil }
+        let token = output[start.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.hasPrefix("{") ? token : nil
+    }
+
+    /// Hollow's sign-in result page, bundled in the app. nil under `swift run` (rclone's own page).
+    static var signInPage: URL? { Bundle.main.url(forResource: "signin", withExtension: "html") }
 
     /// NFS mount (no kernel extension or macFUSE). Full VFS cache = sparse cache files,
     /// so only the byte ranges an app actually reads get downloaded.

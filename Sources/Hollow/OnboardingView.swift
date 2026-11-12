@@ -35,7 +35,7 @@ struct OnboardingView: View {
         .animation(.default, value: page)
         .animation(.default, value: drive.phase)
         .onAppear {
-            NSApp.activate()   // menu-bar apps don't come to the front by themselves
+            BringForward.now()   // menu-bar apps don't come to the front by themselves
             if drive.signedIn { page = lastPage }
         }
     }

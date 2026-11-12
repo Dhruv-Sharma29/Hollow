@@ -41,19 +41,34 @@ final class Drive {
         // Clicking again restarts sign-in. Otherwise the old rclone keeps its local OAuth port
         // and the new one fails.
         signInProcess?.terminate()
+        // A sign-in left over from an earlier Hollow (killed, crashed, or an old build) keeps
+        // rclone's callback port, and the browser then hands the login to it instead of us.
+        // Matches only this Hollow's rclone binary, never an rclone you run yourself.
+        _ = await Self.run("/usr/bin/pkill", ["-f", "^\(rclone.binary.path) (authorize drive|config create \(Rclone.remote) )"],
+                           timeout: .seconds(3))
         let client = Rclone.googleClient()
         let p = Process()
         p.executableURL = rclone.binary
-        p.arguments = rclone.signInArgs(clientID: client?.id, clientSecret: client?.secret)
+        p.arguments = rclone.authorizeArgs(clientID: client?.id, clientSecret: client?.secret, template: Rclone.signInPage)
+        let output = Pipe()
+        p.standardOutput = output
         signInProcess = p
         phase = .busy("Finish signing in in your browser…")
 
         let code = await Self.exitCode(of: p)
         guard signInProcess === p else { return }   // a newer sign-in replaced this one
         signInProcess = nil
-        signedIn = rclone.isSignedIn()
         if code == 15 { phase = .idle; return }   // the user pressed Cancel
-        guard code == 0, signedIn else { phase = .failed("Sign-in didn't finish. Try again."); return }
+        let printed = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        guard code == 0, let token = Rclone.token(fromAuthorizeOutput: printed) else {
+            phase = .failed("Sign-in didn't finish. Try again.")
+            return
+        }
+        let saved = await Self.run(rclone.binary.path,
+                                   rclone.saveTokenArgs(token, clientID: client?.id, clientSecret: client?.secret),
+                                   timeout: .seconds(15))
+        signedIn = rclone.isSignedIn()
+        guard saved == 0, signedIn else { phase = .failed("Signed in, but couldn't save it. Try again."); return }
         await mount()
     }
 
