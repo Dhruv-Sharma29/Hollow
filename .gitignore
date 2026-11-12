@@ -4,3 +4,5 @@ dist/
 
 # Google OAuth client files hold a secret. Pass them to scripts/build-app.sh; never commit them.
 client_secret*.json
+spikes/fskit/build/
+spikes/fskit/*.xcodeproj/

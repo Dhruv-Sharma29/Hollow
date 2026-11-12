@@ -1,0 +1,62 @@
+# Spike: can this Mac sign and run an FSKit file system that Finder shows as "Hollow Drive" with Eject?
+# Generate the Xcode project with:  xcodegen generate --spec project.yml
+name: HollowFSSpike
+options:
+  bundleIdPrefix: app.hollow.spike
+  deploymentTarget:
+    macOS: "26.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: 6N4NH3RW4K
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  HollowFSSpike:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - path: ../../branding/Hollow.icon   # same light/dark logo as the main app
+        type: file
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: Hollow Drive
+        PRODUCT_BUNDLE_IDENTIFIER: app.hollow.spike.HollowFSSpike
+        ASSETCATALOG_COMPILER_APPICON_NAME: Hollow
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Hollow Drive
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+    dependencies:
+      - target: HollowFS
+  HollowFS:
+    type: extensionkit-extension
+    platform: macOS
+    sources: [FS]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.hollow.spike.HollowFSSpike.fs
+    info:
+      path: FS/Info.plist
+      properties:
+        CFBundleDisplayName: Hollow Drive
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.fskit.fsmodule
+          FSShortName: hollowdrive
+          FSSupportsPathURLs: true
+          FSSupportsBlockResources: false
+          FSSupportsGenericURLResources: false
+          FSRequiresSecurityScopedPathURLResources: false
+          FSMediaTypes: {}
+          FSPersonalities: {}
+    entitlements:
+      path: FS/FS.entitlements
+      properties:
+        com.apple.developer.fskit.fsmodule: true
+        com.apple.security.app-sandbox: true
