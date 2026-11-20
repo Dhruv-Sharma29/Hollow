@@ -1,121 +1,150 @@
-# Hollow
+<p align="center">
+  <img src="branding/logo-dark.png" width="112" alt="Hollow app icon">
+</p>
 
-A macOS menu-bar app that mounts your Google Drive at `~/Hollow`.
-Files stay in your Drive. Opening one downloads only the parts an app actually reads,
-so a 90 GB video plays without filling your disk.
+<h1 align="center">Hollow</h1>
 
-It's a SwiftUI shell around [rclone](https://rclone.org) (MIT): `rclone nfsmount` with
-`--vfs-cache-mode full`. NFS means no macFUSE and no kernel extension.
+<p align="center">Your Google Drive as a disk on your Mac. Files stay in Drive; only the bytes an app reads come down.</p>
 
-The only window is first-run setup (connect Google Drive, open at login).
-Everything after that lives in the menu bar.
+---
 
-## Open source, paid app
+Hollow is a macOS menu-bar app that mounts your Google Drive at `~/Hollow`. Finder, QuickTime and
+any other app see an ordinary folder. Opening a file downloads only the byte ranges the app actually
+reads, so a 48 GB video starts playing without taking 48 GB of disk.
 
-The code is GPL-3.0 (see [LICENSE](LICENSE)). Anyone can build Hollow for free.
-The paid version is the signed, notarized app that installs with one drag and updates itself:
-you pay for the convenience, not for an unlock. There's no license check in the code, on purpose.
-A license check in public code only stops honest people.
+> **Status (2026-11-20).** The app signs in with your own Google client, mounts Drive, streams files
+> by range, and has a first-run tour, a search palette and settings. It has been run end to end on
+> one Mac against a real Drive. It is not yet signed with a Developer ID or notarized, so it only runs
+> on the Mac that built it. A native FSKit version (a real disk with Eject) is designed and partly
+> built on other branches, and is blocked on the paid Apple Developer Program. See
+> [docs/06-roadmap.md](docs/06-roadmap.md).
 
-GPL-3.0 means anyone who ships a modified Hollow has to publish their changes under the same
-license, so nobody can take this code and sell a closed-source copy of it.
+## Screenshots
 
-## Build and run it yourself
+| First-run tour | Partial downloads, explained |
+| --- | --- |
+| ![Welcome page of the first-run tour](docs/images/tour-welcome.png) | ![Tour page showing a 48 GB film with only one slice downloaded](docs/images/tour-streaming.png) |
+| **Privacy** | **Connected** |
+| ![Tour page explaining Hollow only sees its own folder](docs/images/tour-privacy.png) | ![Final tour page: Hollow is ready](docs/images/tour-ready.png) |
 
-You need a Mac with Apple Silicon, macOS 15 or later, Xcode, and about 15 minutes.
-The repo has no Google credentials in it: every build uses a Google client you create.
+| Search palette (Control-Option-H) | Before connecting |
+| --- | --- |
+| ![Search palette, mounted, with actions](docs/images/palette.png) | ![Search palette asking to connect Google Drive](docs/images/palette-not-connected.png) |
+| **Settings** | **Sign-in result page** |
+| ![Settings window](docs/images/settings.png) | ![Browser page shown after a successful Google sign-in](docs/images/signin-page.png) |
 
-### 1. Install rclone
+Screenshots are rendered from the app's own SwiftUI views and the sign-in page template, so they
+match the code on `main`.
+
+## What has been verified
+
+Each row was checked on one Apple Silicon Mac running macOS 27 unless it says otherwise.
+
+| Claim | How it was checked | Result |
+| --- | --- | --- |
+| Only requested byte ranges are downloaded | Read 1 MB from the middle of a 50 MB file through the mount, then measured the cache | about 2 MB cached, not 50 MB |
+| Mount and unmount work without macFUSE or root | `rclone nfsmount` started by the app; unmount from the app | mounts at `~/Hollow`; unmounts cleanly when the mount is detached before rclone stops |
+| Sign-in with your own Google client | Real sign-in; the consent screen shows "Hollow" | token saved; Drive mounted |
+| The sign-in result page renders through rclone | Real `rclone authorize` fed a failure response | Hollow's page served, with the error filled in |
+| A stale mount cannot freeze launch | Reproduced a stuck NFS unmount, fixed it, retested | unmount runs off the main thread with a 10 s limit |
+| Unit tests | `swift test` | 7 passing on `main`; 23 on `feature/drive-client` |
+| Native Drive client (no rclone) | Live run against a real Drive on `feature/drive-client` | interrupted upload resumed; three ranged reads matched byte for byte |
+
+Not verified yet: use with Final Cut Pro, DaVinci Resolve and other editors **[verify]**; behaviour on
+Intel Macs (not supported); behaviour with very large Drive folders (search walks the tree).
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph App[Hollow.app]
+        UI[Menu bar, tour,<br/>palette, settings] --> D[Drive model]
+    end
+    D -->|authorize + config create| RC[bundled rclone]
+    D -->|nfsmount / umount| RC
+    RC -->|NFS on 127.0.0.1| M["~/Hollow"]
+    Finder[Finder and other apps] --> M
+    RC <-->|Drive v3 API, drive.file scope| G[(Google Drive)]
+    RC --> C[(VFS cache<br/>5 to 100 GB)]
+    B[Browser] -->|OAuth on 127.0.0.1:53682| RC
+```
+
+- **Sign-in.** `rclone authorize` opens Google in your browser and serves Hollow's own result page.
+  The token is then saved with `rclone config create` into Hollow's own config file, separate from
+  any rclone setup you already have.
+- **Mount.** `rclone nfsmount` with `--vfs-cache-mode full` serves Drive over NFS on loopback, and
+  macOS mounts it at `~/Hollow`. The cache stores sparse files, which is what makes range reads cheap.
+- **Unmount.** Hollow detaches the mount first, while rclone's server is still running, then stops
+  rclone. The reverse order can leave the kernel waiting on a server that is gone.
+
+Details and the decisions behind them: [docs/01-architecture.md](docs/01-architecture.md).
+
+## Privacy and security
+
+- **Narrow scope.** Hollow requests only `https://www.googleapis.com/auth/drive.file`: it can see
+  files it created, never the rest of your Drive.
+- **No servers.** Files move directly between your Mac and Google. Hollow has no backend.
+- **No secrets in the repository.** Each build gets its Google client from a JSON file passed to the
+  build script. `client_secret*.json` is git-ignored, and the build rejects placeholder values.
+- **Recoverable deletes in the native client.** `HollowDrive` moves files to Drive's bin rather than
+  deleting them.
+
+Threat model and residual risks: [docs/04-privacy-and-security.md](docs/04-privacy-and-security.md).
+
+## Quick start
+
+Requirements: Apple Silicon Mac, macOS 15 or later, Xcode 27, Homebrew.
 
 ```bash
 brew install rclone
 ```
 
-### 2. Create your own Google client
+1. **Create a Google client** (free, about 10 minutes): a Google Cloud project with the Drive API,
+   an **External** consent screen with yourself as a test user, the `drive.file` scope, and a
+   **Desktop app** client. Download its JSON. Step by step: [docs/02-google-setup.md](docs/02-google-setup.md).
+2. **Build:**
+   ```bash
+   ./scripts/build-app.sh ~/Downloads/client_secret_XXXX.json
+   ```
+3. **Run:**
+   ```bash
+   open dist/Hollow.app
+   ```
+   Go through the tour, click **Connect Google Drive**, and sign in. Your Drive appears at `~/Hollow`.
 
-Google requires every app that touches Drive to have its own client. It's free.
-
-1. Open [Google Cloud Console](https://console.cloud.google.com) and create a project, e.g. `Hollow`.
-2. **APIs & Services → Library**: enable the **Google Drive API**.
-3. **Google Auth Platform → Get started**: enter an app name and your email.
-   For **Audience**, pick **External**. (Internal only works for Google Workspace accounts in your
-   organisation; personal Gmail accounts get `Error 403: org_internal`.)
-4. **Audience → Test users → Add users**: add the Gmail address you'll sign in with.
-   While the app is in Testing, only listed test users can sign in; everyone else gets
-   `Error 403: access_denied`.
-5. **Data access → Add or remove scopes**: add only `https://www.googleapis.com/auth/drive.file`.
-   Hollow sees just the files it creates, and this scope needs no security audit.
-6. **Clients → Create client → Desktop app**, then **Download JSON**. Google shows a secret only
-   once; if you lose it, use **Add secret** on the client page and download again.
-
-Keep that JSON file out of the repo (`.gitignore` already ignores `client_secret*.json`).
-
-### 3. Build the app
+Development and tests:
 
 ```bash
-./scripts/build-app.sh ~/Downloads/client_secret_….json
-```
-
-The first line should read `using Google client …`. This writes `dist/Hollow.app` with rclone
-and its license bundled inside. Your client goes into the app's `Info.plist`, never the repo.
-Without `DEVELOPER_ID` the app is ad-hoc signed and runs only on the Mac that built it.
-
-### 4. Run it
-
-```bash
-open dist/Hollow.app
-```
-
-Go through the tour and click **Connect Google Drive**. Google shows "Google hasn't verified this
-app" while your client is in Testing: choose **Continue**, then **Allow**. Your Drive appears at
-`~/Hollow`. Press **⌃⌥H** anywhere to search it.
-
-### Develop and test
-
-```bash
-HOLLOW_CLIENT_ID=… HOLLOW_CLIENT_SECRET=… swift run
 swift test
+HOLLOW_CLIENT_ID=... HOLLOW_CLIENT_SECRET=... swift run
 ```
 
-`swift run` reads the client from the environment. "Open at login" only works from the built app.
+## Repository layout
 
-### Let anyone sign in
+| Path | What it is |
+| --- | --- |
+| `Sources/Hollow/` | The app: menu bar, tour, palette, settings, and `Drive`, which runs rclone |
+| `Resources/signin.html` | The page shown in the browser after Google sign-in |
+| `Tests/HollowTests/` | Unit tests for rclone arguments, token parsing and the mount check |
+| `scripts/build-app.sh` | Builds `dist/Hollow.app` with rclone, licences and the icon inside |
+| `scripts/make-icon.sh` | Rebuilds the light and dark icon art in `branding/Hollow.icon` |
+| `branding/` | Logos, the Icon Composer icon, and the consent-screen logo |
+| `docs/` | Design record: architecture, setup, security, testing, roadmap |
 
-Testing allows up to 100 test users. To open sign-in to everyone, publish your consent screen:
-you'll need a domain you own (verified in Google Search Console), a homepage and a privacy policy
-on it, the **Branding** page filled in, then **Audience → Publish app**. A logo also goes through
-Google's brand verification, which takes a few days.
+| Branch | Contents |
+| --- | --- |
+| `main` | The app described above |
+| `feature/drive-client` | `HollowDrive`, a native Google Drive client with resumable uploads and ranged reads |
+| `spike/fskit` | A minimal FSKit extension that would make Hollow a real disk; blocked on account type |
 
-## Before you can sell it
+## Documentation
 
-| Step | Needs |
-|---|---|
-| Developer ID signing + notarization (`xcrun notarytool`) | Apple Developer Program, $99/year |
-| Google consent screen published for the public | A domain, homepage and privacy policy |
-| Payments | A payment provider (e.g. Razorpay, Lemon Squeezy, Paddle) that delivers the download link after purchase |
-| Distribution | A `.dmg`, a download page, and auto-updates (e.g. Sparkle) so paying users stay current |
-| Intel Macs | A universal rclone (`lipo` the arm64 and amd64 builds from rclone.org) |
+Start at [docs/README.md](docs/README.md) for the reading order.
 
-## Where things live
+## Licence
 
-| What | Path |
-|---|---|
-| Mount | `~/Hollow` |
-| rclone config + token | `~/Library/Application Support/Hollow/rclone.conf` (separate from your own rclone config) |
-| Read cache (10 GB cap) | `~/Library/Application Support/Hollow/cache` |
-| Log | `~/Library/Application Support/Hollow/rclone.log` |
+GPL-3.0, see [LICENSE](LICENSE). Hollow bundles [rclone](https://rclone.org) (MIT); its licence
+ships inside the app as `rclone-LICENSE.txt`.
 
-## Known gaps
-
-- Killing the app (rather than choosing Quit) leaves rclone running, so the mount stays up. The next launch clears it.
-- Sign Out removes your Google token but keeps the cache, which may hold writes rclone hasn't uploaded yet.
-- Google sign-in hasn't been tested end to end.
-- Apple Silicon only.
-
-## Roadmap
-
-1. Auto-updates (Sparkle)
-2. Optional end-to-end encryption (rclone `crypt` remote)
-3. Dropbox
-4. Drop files on the menu-bar icon to upload
-5. File Provider extension (Finder sidebar, native sync badges)
+The source is free to build. A signed, notarized build is intended to be sold as a convenience;
+there is no licence check in the code, by design.

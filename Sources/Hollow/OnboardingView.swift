@@ -4,7 +4,12 @@ import SwiftUI
 struct OnboardingView: View {
     let drive: Drive
     @Environment(\.dismissWindow) private var dismissWindow
-    @State private var page = 0
+    @State private var page: Int
+
+    init(drive: Drive, startPage: Int = 0) {
+        self.drive = drive
+        _page = State(initialValue: startPage)
+    }
 
     private let lastPage = 3
 

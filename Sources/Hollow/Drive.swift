@@ -15,6 +15,13 @@ final class Drive {
     /// A problem worth showing that doesn't change the mount state, e.g. a refused unmount.
     private(set) var notice: String?
 
+    /// A Drive frozen in one state, for screenshots and previews. Touches no files or processes.
+    init(previewPhase: Phase, signedIn: Bool) {
+        rclone = nil
+        phase = previewPhase
+        self.signedIn = signedIn
+    }
+
     init() {
         let support = URL.applicationSupportDirectory.appending(path: "Hollow")
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
